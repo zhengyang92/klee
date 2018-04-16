@@ -592,7 +592,9 @@ private:
   // FIXME: Make =delete when we switch to C++11
   Array& operator =(const Array& array);
 
-  ~Array();
+public:
+  bool isSymbolicArray() const { return constantValues.empty(); }
+  bool isConstantArray() const { return !isSymbolicArray(); }
 
   /// Array - Construct a new array object.
   ///
@@ -606,9 +608,8 @@ private:
         const ref<ConstantExpr> *constantValuesEnd = 0,
         Expr::Width _domain = Expr::Int32, Expr::Width _range = Expr::Int8);
 
-public:
-  bool isSymbolicArray() const { return constantValues.empty(); }
-  bool isConstantArray() const { return !isSymbolicArray(); }
+  ~Array();
+
 
   const std::string getName() const { return name; }
   unsigned getSize() const { return size; }

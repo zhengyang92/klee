@@ -22,6 +22,9 @@
 
 #include "klee/util/ExprPPrinter.h"
 
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/ArrayRef.h"
+
 #include <sstream>
 #include <fenv.h>
 #include <limits.h>
@@ -464,7 +467,7 @@ ref<Expr> ConstantExpr::fromMemory(void *address, Width width) {
   // FIXME: what about machines without x87 support?
   default:
     return ConstantExpr::alloc(llvm::APInt(width,
-      (width+llvm::integerPartWidth-1)/llvm::integerPartWidth,
+           (width+llvm::APFloatBase::integerPartWidth-1)/llvm::APFloatBase::integerPartWidth,
       (const uint64_t*)address));
   }
 }
@@ -535,11 +538,11 @@ ref<ConstantExpr> ConstantExpr::SExt(Width W) {
 static inline const llvm::fltSemantics * fpWidthToSemantics(unsigned width) {
   switch(width) {
   case Expr::Fl32:
-    return &llvm::APFloat::IEEEsingle;
+    return &llvm::APFloat::IEEEsingle();
   case Expr::Fl64:
-    return &llvm::APFloat::IEEEdouble;
+    return &llvm::APFloat::IEEEdouble();
   case Expr::Fl80:
-    return &llvm::APFloat::x87DoubleExtended;
+    return &llvm::APFloat::x87DoubleExtended();
   default:
     return 0;
   }
@@ -556,7 +559,7 @@ ref<ConstantExpr> FConstantExpr::FToU(Width W, llvm::APFloat::roundingMode rm) {
 
   uint64_t new_value = 0;
   bool isExact = true;
-  value.convertToInteger(&new_value, W, false, llvm::APFloat::rmTowardZero, &isExact);
+  value.convertToInteger(llvm::MutableArrayRef<uint64_t>(new_value), W, false, llvm::APFloat::rmTowardZero, &isExact);
   return ConstantExpr::alloc(new_value, W);
 }
 
@@ -579,7 +582,7 @@ ref<ConstantExpr> FConstantExpr::FToS(Width W, llvm::APFloat::roundingMode rm) {
 
   uint64_t new_value = 0;
   bool isExact = true;
-  value.convertToInteger(&new_value, W, true, llvm::APFloat::rmTowardZero, &isExact);
+  value.convertToInteger(llvm::MutableArrayRef<uint64_t>(new_value), W, true, llvm::APFloat::rmTowardZero, &isExact);
   return ConstantExpr::alloc(new_value, W);
 }
 
@@ -1162,7 +1165,8 @@ ref<FConstantExpr> FConstantExpr::FRem(const ref<FConstantExpr> &RHS, llvm::APFl
   }
 
   llvm::APFloat Res = value;
-  Res.mod(RHS->getAPValue(), RM);
+  //  Res.mod(RHS->getAPValue(), RM);
+  Res.mod(RHS->getAPValue());
   return FConstantExpr::alloc(Res);
 }
 
