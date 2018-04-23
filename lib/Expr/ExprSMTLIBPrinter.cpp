@@ -268,6 +268,11 @@ void ExprSMTLIBPrinter::printFullExpression(
   case Expr::FMul:
   case Expr::FSub:
   case Expr::FDiv:
+  case Expr::FOeq:
+  case Expr::FOle:
+  case Expr::FOlt:
+  case Expr::FOgt:
+  case Expr::FOge:
     printSortArgsExpr(e, SORT_FP);
     return;
 
@@ -486,6 +491,17 @@ const char *ExprSMTLIBPrinter::getSMTLIBKeyword(const ref<Expr> &e) {
     return "fp.sub";
   case Expr::FAdd:
     return "fp.add";
+
+  case Expr::FOeq:
+    return "fp.eq";
+  case Expr::FOle:
+    return "fp.leq";
+  case Expr::FOlt:
+    return "fp.lt";
+  case Expr::FOge:
+    return "fp.geq";
+  case Expr::FOgt:
+    return "fp.gt";
 
   default:
     llvm_unreachable("Conversion from Expr to SMTLIB keyword failed");
@@ -1001,6 +1017,11 @@ ExprSMTLIBPrinter::SMTLIB_SORT ExprSMTLIBPrinter::getSort(const ref<Expr> &e) {
   case Expr::Ule:
   case Expr::Ugt:
   case Expr::Uge:
+  case Expr::FOeq:
+  case Expr::FOge:
+  case Expr::FOgt:
+  case Expr::FOlt:
+  case Expr::FOle:
     return SORT_BOOL;
 
   case Expr::FAdd:
@@ -1123,7 +1144,8 @@ void ExprSMTLIBPrinter::printSelectExpr(const ref<SelectExpr> &e,
 
 void ExprSMTLIBPrinter::printSortArgsExpr(const ref<Expr> &e,
                                           ExprSMTLIBPrinter::SMTLIB_SORT s) {
-  if (auto BRE = dyn_cast<FBinaryRoundExpr>(e)){
+  if (isa<FBinaryRoundExpr>(e) && !isa<FRemExpr>(e)) {
+    auto BRE = cast<FBinaryRoundExpr>(e);
     auto RM = BRE->getRoundingMode();
     std::string RMS;
     if (RM == llvm::APFloat::rmNearestTiesToEven) {
