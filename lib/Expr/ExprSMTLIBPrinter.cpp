@@ -1,3 +1,4 @@
+
 //===-- ExprSMTLIBPrinter.cpp -----------------------------------*- C++ -*-===//
 //
 //                     The KLEE Symbolic Virtual Machine
@@ -51,7 +52,7 @@ namespace klee {
 
 ExprSMTLIBPrinter::ExprSMTLIBPrinter()
     : usedArrays(), o(NULL), query(NULL), p(NULL), haveConstantArray(false),
-      logicToUse(QF_AUFBV),
+      logicToUse(QF_BV),
       humanReadable(ExprSMTLIBOptions::humanReadableSMTLIB),
       smtlibBoolOptions(), arraysToCallGetValueOn(NULL) {
   setConstantDisplayMode(ExprSMTLIBOptions::argConstantDisplayMode);
@@ -240,7 +241,11 @@ void ExprSMTLIBPrinter::printFullExpression(
      * a lazy way by enforcing the second argument is of the same type as the
      * first.
      */
-    printSortArgsExpr(e, getSort(e->getKid(0)));
+    if(getSort(e->getKid(0)) == SORT_FP || getSort(e->getKid(1)) == SORT_FP) {
+      printSortArgsExpr(e, SORT_FP);
+    } else {
+      printSortArgsExpr(e, getSort(e->getKid(0)));
+    }
     return;
 
   case Expr::And:
@@ -257,6 +262,13 @@ void ExprSMTLIBPrinter::printFullExpression(
 
   case Expr::AShr:
     printAShrExpr(cast<AShrExpr>(e));
+    return;
+
+  case Expr::FAdd:
+  case Expr::FMul:
+  case Expr::FSub:
+  case Expr::FDiv:
+    printSortArgsExpr(e, SORT_FP);
     return;
 
   default:
@@ -466,6 +478,15 @@ const char *ExprSMTLIBPrinter::getSMTLIBKeyword(const ref<Expr> &e) {
   case Expr::Sge:
     return "bvsge";
 
+  case Expr::FDiv:
+    return "fp.div";
+  case Expr::FMul:
+    return "fp.mul";
+  case Expr::FSub:
+    return "fp.sub";
+  case Expr::FAdd:
+    return "fp.add";
+
   default:
     llvm_unreachable("Conversion from Expr to SMTLIB keyword failed");
   }
@@ -524,7 +545,11 @@ void ExprSMTLIBPrinter::generateOutput() {
     printNotice();
   printOptions();
   printSetLogic();
-  printArrayDeclarations();
+
+  if(logicToUse == QF_BV || logicToUse == QF_FPBV)
+    printBvDeclarations();
+  else
+    printArrayDeclarations();
 
   if (humanReadable)
     printHumanReadableQuery();
@@ -544,6 +569,12 @@ void ExprSMTLIBPrinter::printSetLogic() {
   case QF_AUFBV:
     *o << "QF_AUFBV";
     break;
+  case QF_BV:
+    *o << "QF_BV";
+    break;
+  case QF_FPBV:
+    *o << "QF_FPBV";
+    break;
   }
   *o << " )\n";
 }
@@ -558,6 +589,20 @@ struct ArrayPtrsByName {
 
 }
 
+void ExprSMTLIBPrinter::printBvDeclarations() {
+  // Assume scan() has been called
+  if (humanReadable)
+    *o << "; Bitvector declarations\n";
+
+  std::vector<const Array *> sortedArrays(usedArrays.begin(), usedArrays.end());
+  std::sort(sortedArrays.begin(), sortedArrays.end(), ArrayPtrsByName());
+  for (std::vector<const Array *>::iterator it = sortedArrays.begin();
+       it != sortedArrays.end(); it++) {
+    *o << "(declare-fun " << (*it)->name << " () "
+       << "(_ BitVec " << (*it)->getRange()
+       << ") )\n";
+  }
+}
 void ExprSMTLIBPrinter::printArrayDeclarations() {
   // Assume scan() has been called
   if (humanReadable)
@@ -683,8 +728,12 @@ void ExprSMTLIBPrinter::printAction() {
       theArray = *it;
       // Loop over the array indices
       for (unsigned int index = 0; index < theArray->size; ++index) {
-        *o << "(get-value ( (select " << (**it).name << " (_ bv" << index << " "
-           << theArray->getDomain() << ") ) ) )\n";
+        if (logicToUse == QF_BV || logicToUse == QF_FPBV) {
+          *o << "(get-value (" << (*it)->name << ") )\n";
+        } else {
+          *o << "(get-value ( (select " << (**it).name << " (_ bv" << index << " "
+             << theArray->getDomain() << ") ) ) )\n";
+        }
       }
     }
   }
@@ -698,6 +747,8 @@ void ExprSMTLIBPrinter::scan(const ref<Expr> &e) {
 
   if (seenExprs.insert(e).second) {
     // We've not seen this expression before
+    if (logicToUse == QF_BV || logicToUse == QF_FPBV)
+      bindings.insert(std::make_pair(e, bindings.size()+1));
 
     if (const ReadExpr *re = dyn_cast<ReadExpr>(e)) {
 
@@ -827,7 +878,7 @@ void ExprSMTLIBPrinter::scanUpdates(const UpdateNode *un) {
 void ExprSMTLIBPrinter::printExit() { *o << "(exit)\n"; }
 
 bool ExprSMTLIBPrinter::setLogic(SMTLIBv2Logic l) {
-  if (l > QF_AUFBV)
+  if (l > QF_ABV)
     return false;
 
   logicToUse = l;
@@ -886,7 +937,13 @@ void ExprSMTLIBPrinter::printAssert(const ref<Expr> &e) {
         printSeperator();
 
         // We can abbreviate SORT_BOOL or SORT_BITVECTOR in let expressions
-        printExpression(j->first, getSort(j->first));
+        if (const ReadExpr *re = dyn_cast<ReadExpr>(j->first)) {
+          if (logicToUse == QF_BV || logicToUse == QF_FPBV)
+            *p << re->updates.root->name;
+        } else {
+          // We can abbreviate SORT_BOOL or SORT_BITVECTOR in let expressions
+          printExpression(j->first, getSort(j->first));
+        }
 
         p->popIndent();
         printSeperator();
@@ -946,6 +1003,11 @@ ExprSMTLIBPrinter::SMTLIB_SORT ExprSMTLIBPrinter::getSort(const ref<Expr> &e) {
   case Expr::Uge:
     return SORT_BOOL;
 
+  case Expr::FAdd:
+  case Expr::FSub:
+  case Expr::FMul:
+  case Expr::FDiv:
+    return SORT_FP;
   // These may be bitvectors or bools depending on their width (see
   // printConstant and printLogicalOrBitVectorExpr).
   case Expr::Constant:
@@ -1011,8 +1073,21 @@ void ExprSMTLIBPrinter::printCastToSort(const ref<Expr> &e,
       llvm::errs()
           << "ExprSMTLIBPrinter : Warning. Casting a bitvector (length "
           << bitWidth << ") to bool!\n";
-
-  } break;
+    break;
+  }
+  case SORT_FP: {
+    if (e->getWidth() == 32) {
+      *p << "((_ to_fp 8 24)";
+    } else if (e->getWidth() == 64) {
+      *p << "((_ to_fp 11 53)";
+    }
+    p->pushIndent();
+    printSeperator();
+    printExpression(e, SORT_BITVECTOR);
+    p->popIndent();
+    *p << ")";
+    break;
+  }
   default:
     llvm_unreachable("Unsupported cast");
   }
@@ -1048,7 +1123,24 @@ void ExprSMTLIBPrinter::printSelectExpr(const ref<SelectExpr> &e,
 
 void ExprSMTLIBPrinter::printSortArgsExpr(const ref<Expr> &e,
                                           ExprSMTLIBPrinter::SMTLIB_SORT s) {
-  *p << "(" << getSMTLIBKeyword(e) << " ";
+  if (auto BRE = dyn_cast<FBinaryRoundExpr>(e)){
+    auto RM = BRE->getRoundingMode();
+    std::string RMS;
+    if (RM == llvm::APFloat::rmNearestTiesToEven) {
+      RMS = "roundNearestTiesToEven";
+    } else if (RM == llvm::APFloat::rmTowardPositive) {
+      RMS = "roundTowardPositive";
+    } else if (RM == llvm::APFloat::rmTowardNegative) {
+      RMS= "roundTowardNegative";
+    } else if (RM == llvm::APFloat::rmTowardZero) {
+      RMS= "rmTowardZero";
+    } else if (RM == llvm::APFloat::rmNearestTiesToAway) {
+      RMS = "roundNearestTiesToAway";
+    }
+    *p << "(" << getSMTLIBKeyword(e) << " " << RMS << " ";
+  } else {
+    *p << "(" << getSMTLIBKeyword(e) << " ";
+  }
   p->pushIndent(); // add indent for recursive call
 
   // loop over children and recurse into each expecting they are of sort "s"

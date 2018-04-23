@@ -80,6 +80,8 @@ public:
   /// Different SMTLIBv2 logics supported by this class
   /// \sa setLogic()
   enum SMTLIBv2Logic {
+    QF_BV,
+    QF_FPBV,
     QF_ABV,  ///< Logic using Theory of Arrays and Theory of Bitvectors
     QF_AUFBV ///< Logic using Theory of Arrays and Theory of Bitvectors and has
              ///< uninterpreted functions
@@ -117,7 +119,7 @@ public:
   };
 
   /// Different supported SMTLIBv2 sorts (a.k.a type) in QF_AUFBV
-  enum SMTLIB_SORT { SORT_BITVECTOR, SORT_BOOL };
+  enum SMTLIB_SORT { SORT_BITVECTOR, SORT_BOOL, SORT_FP };
 
   /// Allows the way Constant bitvectors are printed to be changed.
   /// This setting is persistent across queries.
@@ -257,6 +259,9 @@ protected:
 
   // Print SMTLIBv2 assertions for constant arrays
   void printArrayDeclarations();
+
+  // Print SMTLIBv2 bitvector declarations
+  void printBvDeclarations();
 
   // Print SMTLIBv2 for the query optimised for human readability
   void printHumanReadableQuery();
